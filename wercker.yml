@@ -1,0 +1,67 @@
+box: groovex/go-app-builder:ubuntu-16.04
+
+build:
+  steps:
+    - script:
+      name: setup environment
+      code: |-
+        export GOPATH=/
+        mkdir -p /src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER
+        cp -a $WERCKER_SOURCE_DIR /src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER/$WERCKER_GIT_REPOSITORY
+        export WERCKER_SOURCE_DIR=/src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER/$WERCKER_GIT_REPOSITORY
+
+    - script:
+      name: make
+      code: |-
+        make
+
+deploy:
+  steps:
+    - script:
+      name: setup environment
+      code: |-
+        export GOPATH=/
+        mkdir -p /src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER
+        cp -a $WERCKER_SOURCE_DIR /src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER/$WERCKER_GIT_REPOSITORY
+        export WERCKER_SOURCE_DIR=/src/$WERCKER_GIT_DOMAIN/$WERCKER_GIT_OWNER/$WERCKER_GIT_REPOSITORY
+
+        export GITHUB_RELEASE_VERSION=$(cat deb.json | jq -r '.version')
+
+    - script:
+      name: build debian package
+      code: |-
+        make deb
+
+    - groove-x/push-package:
+      path: .
+      arch: amd64
+      repo_name: ${REPO_NAME}
+
+
+    - github-create-release:
+      token: $GITHUB_TOKEN
+      tag: $GITHUB_RELEASE_VERSION
+      title: $GITHUB_RELEASE_VERSION
+      draft: true
+
+    - github-upload-asset:
+      token: $GITHUB_TOKEN
+      content-type: binary/octet-stream
+      file: build/amd64/cgroup-exporter
+      filename: amd64/cgroup-exporter
+    - github-upload-asset:
+      token: $GITHUB_TOKEN
+      content-type: binary/octet-stream
+      file: build/arm64/cgroup-exporter
+      filename: arm64/cgroup-exporter
+
+    - github-upload-asset:
+      token: $GITHUB_TOKEN
+      content-type: application/vnd.debian.binary-package
+      file: prometheus-cgroup-exporter_${GITHUB_RELEASE_VERSION}_amd64.deb
+      filename: prometheus-cgroup-exporter-amd64.deb
+    - github-upload-asset:
+      token: $GITHUB_TOKEN
+      content-type: application/vnd.debian.binary-package
+      file: prometheus-cgroup-exporter_${GITHUB_RELEASE_VERSION}_arm64.deb
+      filename: prometheus-cgroup-exporter-arm64.deb
