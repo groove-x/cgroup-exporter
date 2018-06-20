@@ -1,1 +1,1 @@
-# cgroup-exporter
+# cgroup-exporter [![wercker status](https://app.wercker.com/status/c5dbed66eb7477a1c3a0b1a8bfe879c0/s/master "wercker status")](https://app.wercker.com/project/byKey/c5dbed66eb7477a1c3a0b1a8bfe879c0)
