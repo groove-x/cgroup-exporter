@@ -19,6 +19,8 @@ var (
 	versionFlag = flag.Bool("version", false, "version")
 	version     string
 	git         string
+
+	address = flag.String("address", ":48900", "address")
 )
 
 func main() {
@@ -39,7 +41,7 @@ func main() {
 	http.HandleFunc("/metrics", exportMetrics(system))
 
 	server := &http.Server{
-		Addr: "0.0.0.0:48900",
+		Addr: *address,
 	}
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

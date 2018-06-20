@@ -2,6 +2,8 @@ PACKAGE_NAME:=$(shell cat deb.json | jq -r '.name')
 VERSION:=$(shell cat deb.json | jq -r '.version')
 ARCH?=amd64
 
+all: test build
+
 test:
 	go-bin-deb test
 
@@ -25,6 +27,7 @@ install:
 uninstall:
 	sudo dpkg -r ${PACKAGE_NAME}
 
+build: build/${ARCH}/cgroup-exporter
 build/${ARCH}/cgroup-exporter: deb.json
 	go get -d -t .
 	@rm -rf build/${ARCH} && mkdir -p build/${ARCH}
