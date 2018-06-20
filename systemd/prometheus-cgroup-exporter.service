@@ -1,0 +1,10 @@
+[Unit]
+Description=prometheus cgroup exporter
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/cgroup-exporter
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+{
+  "name": "prometheus-cgroup-exporter",
+  "version": "0.1.0",
+  "maintainer": "GROOVE X Development Team <dev@groove-x.com>",
+  "description": "prometheus cgroup exporter",
+  "changelog-cmd": "git log --pretty='format:%cd %h %s %d [%an]' --date=iso --merges",
+  "homepage": "https://github.com/groove-x/cgroup-exporter",
+  "files": [
+    {
+      "from": "build/!arch!/cgroup-exporter",
+      "to": "/usr/local/bin",
+      "base" : "build/!arch!",
+      "fperm": "0755"
+    }
+  ],
+  "systemd-file" : "systemd/prometheus-cgroup-exporter.service",
+  "copyrights": [
+    {
+      "files": "*",
+      "copyright": "Copyright (c) 2018, GROOVE X, Inc. All rights reserved.",
+      "license": "",
+      "file": ""
+    }
+  ]
+}
