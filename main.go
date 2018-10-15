@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -62,13 +63,13 @@ var (
 	cpuUserTotalHeader = `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
 # TYPE container_cpu_user_seconds_total counter
 `
-	cpuUserTotalFormat = `container_cpu_user_seconds_total{id="%s"} %.2f
+	cpuUserTotalFormat = `container_cpu_user_seconds_total{id=%s} %.2f
 `
 
 	memoryUsageHeader = `# HELP container_memory_usage_bytes Current memory usage in bytes.
 # TYPE container_memory_usage_bytes gauge
 `
-	memoryUsageFormat = `container_memory_usage_bytes{id="%s"} %d
+	memoryUsageFormat = `container_memory_usage_bytes{id=%s} %d
 `
 )
 
@@ -115,11 +116,11 @@ func exportMetrics(system cgroups.Cgroup) func(w http.ResponseWriter, r *http.Re
 
 		fmt.Fprint(w, cpuUserTotalHeader)
 		for name, stats := range groups {
-			fmt.Fprintf(w, cpuUserTotalFormat, name, float64(stats.CPU.Usage.User)/1000000000.0)
+			fmt.Fprintf(w, cpuUserTotalFormat, strconv.Quote(name), float64(stats.CPU.Usage.User)/1000000000.0)
 		}
 		fmt.Fprint(w, memoryUsageHeader)
 		for name, stats := range groups {
-			fmt.Fprintf(w, memoryUsageFormat, name, stats.Memory.Usage.Usage)
+			fmt.Fprintf(w, memoryUsageFormat, strconv.Quote(name), stats.Memory.Usage.Usage)
 		}
 		return
 	}
