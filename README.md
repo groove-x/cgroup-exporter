@@ -31,9 +31,9 @@ container_memory_usage_bytes{id="/system.slice/NetworkManager.service"} 18305024
 
 # HELP container_memory_rss Size of RSS in bytes.
 # TYPE container_memory_rss gauge
-container_memory_rss{id="/system.slice/ssh.service"} 110592
-container_memory_rss{id="/system.slice/NetworkManager.service"} 5066752
 container_memory_rss{id="/system.slice/wpa_supplicant.service"} 331776
+container_memory_rss{id="/system.slice/ssh.service"} 110592
 container_memory_rss{id="/system.slice/docker.service"} 24072192
+container_memory_rss{id="/system.slice/NetworkManager.service"} 5066752
 :
 ```
