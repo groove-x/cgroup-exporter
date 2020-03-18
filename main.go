@@ -59,20 +59,6 @@ func main() {
 	}
 }
 
-var (
-	cpuUserTotalHeader = `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
-# TYPE container_cpu_user_seconds_total counter
-`
-	cpuUserTotalFormat = `container_cpu_user_seconds_total{id=%s} %.2f
-`
-
-	memoryUsageHeader = `# HELP container_memory_usage_bytes Current memory usage in bytes.
-# TYPE container_memory_usage_bytes gauge
-`
-	memoryUsageFormat = `container_memory_usage_bytes{id=%s} %d
-`
-)
-
 func subsystem() ([]cgroups.Subsystem, error) {
 	root := "/sys/fs/cgroup"
 	s := []cgroups.Subsystem{
@@ -114,14 +100,27 @@ func exportMetrics(system cgroups.Cgroup) func(w http.ResponseWriter, r *http.Re
 			groups[name] = stats
 		}
 
-		fmt.Fprint(w, cpuUserTotalHeader)
+		fmt.Fprintln(w, `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
+# TYPE container_cpu_user_seconds_total counter`)
 		for name, stats := range groups {
-			fmt.Fprintf(w, cpuUserTotalFormat, strconv.Quote(name), float64(stats.CPU.Usage.User)/1000000000.0)
+			fmt.Fprintf(w, `container_cpu_user_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.Usage.User)/1000000000.0)
+			fmt.Fprintln(w)
 		}
-		fmt.Fprint(w, memoryUsageHeader)
+
+		fmt.Fprintln(w, `# HELP container_memory_usage_bytes Current memory usage in bytes, including all memory regardless of when it was accessed
+# TYPE container_memory_usage_bytes gauge`)
 		for name, stats := range groups {
-			fmt.Fprintf(w, memoryUsageFormat, strconv.Quote(name), stats.Memory.Usage.Usage)
+			fmt.Fprintf(w, `container_memory_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage.Usage)
+			fmt.Fprintln(w)
 		}
+
+		fmt.Fprintln(w, `# HELP container_memory_rss Size of RSS in bytes.
+# TYPE container_memory_rss gauge`)
+		for name, stats := range groups {
+			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.RSS)
+			fmt.Fprintln(w)
+		}
+
 		return
 	}
 }
