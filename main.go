@@ -49,6 +49,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
+		defer dockerClient.Close()
 	}
 
 	http.HandleFunc("/metrics", exportMetrics(system, dockerClient))
@@ -71,12 +72,6 @@ func main() {
 	}
 }
 
-type dockerStats struct {
-	CPU    types.CPUStats    `json:"cpu_stats,omitempty"`
-	PreCPU types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
-	Memory types.MemoryStats `json:"memory_stats,omitempty"`
-}
-
 func subsystem() ([]cgroups.Subsystem, error) {
 	root := "/sys/fs/cgroup"
 	s := []cgroups.Subsystem{
@@ -87,63 +82,89 @@ func subsystem() ([]cgroups.Subsystem, error) {
 	return s, nil
 }
 
+func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgroups.Metrics, error) {
+	processes, err := system.Processes(cgroups.Devices, true)
+	if err != nil {
+		return nil, fmt.Errorf("cgroups load: %s", err)
+	}
+
+	groups := make(map[string]*cgroups.Metrics, len(processes))
+	for _, p := range processes {
+		name := strings.TrimPrefix(p.Path, "/sys/fs/cgroup/devices")
+		name = strings.TrimSuffix(name, "/")
+		if _, ok := groups[name]; ok {
+			continue
+		}
+
+		control, err := cgroups.Load(subsystem, func(subsystem cgroups.Name) (string, error) {
+			return name, nil
+		})
+		if err != nil {
+			log.Printf("cgroups load: %s", err)
+			continue
+		}
+		stats, err := control.Stat(cgroups.IgnoreNotExist)
+		if err != nil {
+			log.Printf("control stat: %s", err)
+			continue
+		}
+		groups[name] = stats
+	}
+	return groups, nil
+}
+
+type dockerStats struct {
+	CPU    types.CPUStats    `json:"cpu_stats,omitempty"`
+	PreCPU types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
+	Memory types.MemoryStats `json:"memory_stats,omitempty"`
+}
+
+func statsDockerContainers(ctx context.Context, dockerClient *client.Client) (map[string]dockerStats, error) {
+	if dockerClient == nil {
+		return nil, nil
+	}
+	containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{
+		All:   true,
+		Limit: 0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list docker containers: %s", err)
+	}
+
+	dockerContainers := make(map[string]dockerStats, len(containers))
+	for _, container := range containers {
+		res, err := dockerClient.ContainerStats(ctx, container.ID, false)
+		if err != nil {
+			log.Printf("failed to stats docker container %s: %s", container.ID, err)
+			continue
+		}
+		var stats dockerStats
+		if err := json.NewDecoder(res.Body).Decode(&stats); err != nil {
+			res.Body.Close()
+			return nil, fmt.Errorf("failed to decode stats json: %s", err)
+		}
+		res.Body.Close()
+		name := fmt.Sprintf("/docker%s", strings.Join(container.Names, "/"))
+		dockerContainers[name] = stats
+	}
+
+	return dockerContainers, nil
+}
+
 func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		processes, err := system.Processes(cgroups.Devices, true)
+		groups, err := statsCgroups(ctx, system)
 		if err != nil {
-			msg := fmt.Sprintf("cgroups load: %s", err)
-			http.Error(w, msg, http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
-		groups := make(map[string]*cgroups.Metrics, len(processes))
-		for _, p := range processes {
-			name := strings.TrimPrefix(p.Path, "/sys/fs/cgroup/devices")
-			name = strings.TrimSuffix(name, "/")
-			if _, ok := groups[name]; ok {
-				continue
-			}
-
-			control, err := cgroups.Load(subsystem, func(subsystem cgroups.Name) (string, error) {
-				return name, nil
-			})
-			if err != nil {
-				log.Printf("cgroups load: %s", err)
-				continue
-			}
-			stats, err := control.Stat(cgroups.IgnoreNotExist)
-			if err != nil {
-				log.Printf("control stat: %s", err)
-				continue
-			}
-			groups[name] = stats
-		}
-
-		dockerContainers := make(map[string]dockerStats)
-		if dockerClient != nil {
-			containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{
-				All:   true,
-				Limit: 0,
-			})
-			if err != nil {
-				msg := fmt.Sprintf("list docker containers: %s", err)
-				http.Error(w, msg, http.StatusInternalServerError)
-			}
-
-			for _, container := range containers {
-				res, err := dockerClient.ContainerStats(ctx, container.ID, false)
-				if err != nil {
-					log.Fatalf("failed to containers docker containers: %s", err)
-				}
-				// res.Body.Close()
-				var stats dockerStats
-				if err := json.NewDecoder(res.Body).Decode(&stats); err != nil {
-					log.Fatalf("failed to decode stats json: %s", err)
-				}
-				name := fmt.Sprintf("/docker%s", strings.Join(container.Names, "/"))
-				dockerContainers[name] = stats
-			}
+		dockerContainers, err := statsDockerContainers(ctx, dockerClient)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		fmt.Fprintln(w, `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
