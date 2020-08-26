@@ -1,6 +1,6 @@
 {
   "name": "prometheus-cgroup-exporter",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "maintainer": "GROOVE X Development Team <dev@groove-x.com>",
   "description": "prometheus cgroup exporter",
   "changelog-cmd": "git log --pretty='format:%cd %h %s %d [%an]' --date=iso --merges",

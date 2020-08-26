@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/containerd/cgroups"
+	"github.com/docker/docker/api/types"
+	"github.com/moby/moby/client"
 )
 
 var (
@@ -21,7 +24,8 @@ var (
 	version     string
 	git         string
 
-	address = flag.String("address", ":48900", "address")
+	address      = flag.String("address", ":48900", "address")
+	enableDocker = flag.Bool("metrics.docker", false, "docker container metrics")
 )
 
 func main() {
@@ -39,7 +43,15 @@ func main() {
 		log.Fatalf("cgroups load: %s", err)
 	}
 
-	http.HandleFunc("/metrics", exportMetrics(system))
+	var dockerClient *client.Client
+	if *enableDocker {
+		dockerClient, err = client.NewEnvClient()
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+	}
+
+	http.HandleFunc("/metrics", exportMetrics(system, dockerClient))
 
 	server := &http.Server{
 		Addr: *address,
@@ -59,6 +71,12 @@ func main() {
 	}
 }
 
+type dockerStats struct {
+	CPU    types.CPUStats    `json:"cpu_stats,omitempty"`
+	PreCPU types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
+	Memory types.MemoryStats `json:"memory_stats,omitempty"`
+}
+
 func subsystem() ([]cgroups.Subsystem, error) {
 	root := "/sys/fs/cgroup"
 	s := []cgroups.Subsystem{
@@ -69,8 +87,10 @@ func subsystem() ([]cgroups.Subsystem, error) {
 	return s, nil
 }
 
-func exportMetrics(system cgroups.Cgroup) func(w http.ResponseWriter, r *http.Request) {
+func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		processes, err := system.Processes(cgroups.Devices, true)
 		if err != nil {
 			msg := fmt.Sprintf("cgroups load: %s", err)
@@ -100,10 +120,40 @@ func exportMetrics(system cgroups.Cgroup) func(w http.ResponseWriter, r *http.Re
 			groups[name] = stats
 		}
 
+		dockerContainers := make(map[string]dockerStats)
+		if dockerClient != nil {
+			containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{
+				All:   true,
+				Limit: 0,
+			})
+			if err != nil {
+				msg := fmt.Sprintf("list docker containers: %s", err)
+				http.Error(w, msg, http.StatusInternalServerError)
+			}
+
+			for _, container := range containers {
+				res, err := dockerClient.ContainerStats(ctx, container.ID, false)
+				if err != nil {
+					log.Fatalf("failed to containers docker containers: %s", err)
+				}
+				// res.Body.Close()
+				var stats dockerStats
+				if err := json.NewDecoder(res.Body).Decode(&stats); err != nil {
+					log.Fatalf("failed to decode stats json: %s", err)
+				}
+				name := fmt.Sprintf("/docker%s", strings.Join(container.Names, "/"))
+				dockerContainers[name] = stats
+			}
+		}
+
 		fmt.Fprintln(w, `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
 # TYPE container_cpu_user_seconds_total counter`)
 		for name, stats := range groups {
 			fmt.Fprintf(w, `container_cpu_user_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.Usage.User)/1000000000.0)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range dockerContainers {
+			fmt.Fprintf(w, `container_cpu_user_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.CPUUsage.UsageInUsermode)/1000000000.0)
 			fmt.Fprintln(w)
 		}
 
@@ -113,11 +163,19 @@ func exportMetrics(system cgroups.Cgroup) func(w http.ResponseWriter, r *http.Re
 			fmt.Fprintf(w, `container_memory_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage.Usage)
 			fmt.Fprintln(w)
 		}
+		for name, stats := range dockerContainers {
+			fmt.Fprintf(w, `container_memory_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage)
+			fmt.Fprintln(w)
+		}
 
 		fmt.Fprintln(w, `# HELP container_memory_rss Size of RSS in bytes.
 # TYPE container_memory_rss gauge`)
 		for name, stats := range groups {
 			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.RSS)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range dockerContainers {
+			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.Stats["rss"])
 			fmt.Fprintln(w)
 		}
 
