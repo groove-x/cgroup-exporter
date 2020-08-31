@@ -15,3 +15,5 @@
 pkg-build
 build
 *.deb
+.idea
+/cgroup-exporter

@@ -19,6 +19,7 @@ container_cpu_user_seconds_total{id="/system.slice/wpa_supplicant.service"} 524.
 container_cpu_user_seconds_total{id="/system.slice/ssh.service"} 1.30
 container_cpu_user_seconds_total{id="/system.slice/docker.service"} 2219.16
 container_cpu_user_seconds_total{id="/system.slice/NetworkManager.service"} 4283.36
+container_cpu_user_seconds_total{id="/docker/grafana"} 0.70
 :
 
 # HELP container_memory_usage_bytes Current memory usage in bytes, including all memory regardless of when it was accessed
@@ -27,6 +28,7 @@ container_memory_usage_bytes{id="/system.slice/wpa_supplicant.service"} 1871872
 container_memory_usage_bytes{id="/system.slice/ssh.service"} 61440
 container_memory_usage_bytes{id="/system.slice/docker.service"} 37171200
 container_memory_usage_bytes{id="/system.slice/NetworkManager.service"} 18305024
+container_memory_usage_bytes{id="/docker/grafana"} 61407232
 :
 
 # HELP container_memory_rss Size of RSS in bytes.
@@ -35,5 +37,27 @@ container_memory_rss{id="/system.slice/wpa_supplicant.service"} 331776
 container_memory_rss{id="/system.slice/ssh.service"} 110592
 container_memory_rss{id="/system.slice/docker.service"} 24072192
 container_memory_rss{id="/system.slice/NetworkManager.service"} 5066752
+container_memory_rss{id="/docker/grafana"} 16224256
 :
 ```
+
+## options
+
+| arg | description |
+| --- | --- |
+| `--metrics.docker` | enable docker container metrics |
+
+
+## customize systemd
+
+You can customize systemd setting with options.
+
+`/etc/systemd/system/prometheus-cgroup-exporter.service.d/local.conf`:
+
+```
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/cgroup-exporter --metrics.docker
+```
+
+see [systemd.unit / Example 2. Overriding vendor settings](https://www.freedesktop.org/software/systemd/man/systemd.unit.html#id-1.14.3).
