@@ -45,8 +45,8 @@ deploy:
 
     - github-create-release:
       token: $GITHUB_TOKEN
-      tag: $GITHUB_RELEASE_VERSION
-      title: $GITHUB_RELEASE_VERSION
+      tag: v$GITHUB_RELEASE_VERSION
+      title: v$GITHUB_RELEASE_VERSION
       draft: true
 
     - github-upload-asset:
