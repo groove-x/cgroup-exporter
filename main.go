@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -72,6 +74,34 @@ func main() {
 	}
 }
 
+type ProcessStats struct {
+	FdCount     int `json:"fd_count"`
+	SocketCount int `json:"socket_count"`
+}
+
+func processStats(pid int) *ProcessStats {
+	dir := fmt.Sprintf("/proc/%d/fd", pid)
+	fds, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var socketCount int
+	for _, fd := range fds {
+		fdPath := path.Join(dir, fd.Name())
+		linkName, err := os.Readlink(fdPath)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(linkName, "socket") {
+			socketCount++
+		}
+	}
+	return &ProcessStats{
+		FdCount:     len(fds),
+		SocketCount: socketCount,
+	}
+}
+
 func subsystem() ([]cgroups.Subsystem, error) {
 	root := "/sys/fs/cgroup"
 	s := []cgroups.Subsystem{
@@ -82,13 +112,18 @@ func subsystem() ([]cgroups.Subsystem, error) {
 	return s, nil
 }
 
-func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgroups.Metrics, error) {
+type cgroupMetrics struct {
+	*cgroups.Metrics
+	Process *ProcessStats `json:"process_stats"`
+}
+
+func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgroupMetrics, error) {
 	processes, err := system.Processes(cgroups.Devices, true)
 	if err != nil {
 		return nil, fmt.Errorf("cgroups load: %s", err)
 	}
 
-	groups := make(map[string]*cgroups.Metrics, len(processes))
+	groups := make(map[string]*cgroupMetrics, len(processes))
 	for _, p := range processes {
 		name := strings.TrimPrefix(p.Path, "/sys/fs/cgroup/devices")
 		name = strings.TrimSuffix(name, "/")
@@ -108,15 +143,20 @@ func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgrou
 			log.Printf("control stat: %s", err)
 			continue
 		}
-		groups[name] = stats
+		ps := processStats(p.Pid)
+		groups[name] = &cgroupMetrics{
+			Metrics: stats,
+			Process: ps,
+		}
 	}
 	return groups, nil
 }
 
 type dockerStats struct {
-	CPU    types.CPUStats    `json:"cpu_stats,omitempty"`
-	PreCPU types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
-	Memory types.MemoryStats `json:"memory_stats,omitempty"`
+	CPU     types.CPUStats    `json:"cpu_stats,omitempty"`
+	PreCPU  types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
+	Memory  types.MemoryStats `json:"memory_stats,omitempty"`
+	Process *ProcessStats     `json:"process_stats"`
 }
 
 func statsDockerContainers(ctx context.Context, dockerClient *client.Client) (map[string]dockerStats, error) {
@@ -145,6 +185,12 @@ func statsDockerContainers(ctx context.Context, dockerClient *client.Client) (ma
 		}
 		res.Body.Close()
 		name := fmt.Sprintf("/docker%s", strings.Join(container.Names, "/"))
+		inspect, err := dockerClient.ContainerInspect(ctx, container.ID)
+		if err == nil {
+			if inspect.State != nil {
+				stats.Process = processStats(inspect.State.Pid)
+			}
+		}
 		dockerContainers[name] = stats
 	}
 
@@ -200,6 +246,49 @@ func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w ht
 			fmt.Fprintln(w)
 		}
 
+		fmt.Fprintln(w, `# HELP container_open_fds Number of open file descriptors
+# TYPE container_open_fds gauge`)
+		for name, stats := range groups {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_fds{id=%s} %d`, strconv.Quote(name), stats.Process.FdCount)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range dockerContainers {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_fds{id=%s} %d`, strconv.Quote(name), stats.Process.FdCount)
+			fmt.Fprintln(w)
+		}
+
+		fmt.Fprintln(w, `# HELP container_open_sockets Number of open sockets
+# TYPE container_open_sockets gauge`)
+		for name, stats := range groups {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range dockerContainers {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+			fmt.Fprintln(w)
+		}
+
+		processStats := processStats(os.Getpid())
+		if processStats != nil {
+			fmt.Fprintln(w, `# HELP process_open_fds Number of open file descriptors
+# TYPE process_open_fds gauge`)
+			fmt.Fprintf(w, `process_open_fds %d`, processStats.FdCount)
+			fmt.Fprintln(w)
+		}
+
 		return
 	}
+
 }
