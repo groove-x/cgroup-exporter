@@ -39,6 +39,24 @@ container_memory_rss{id="/system.slice/docker.service"} 24072192
 container_memory_rss{id="/system.slice/NetworkManager.service"} 5066752
 container_memory_rss{id="/docker/grafana"} 16224256
 :
+
+# HELP container_open_fds Number of open file descriptors
+# TYPE container_open_fds gauge
+container_open_fds{id="/system.slice/wpa_supplicant.service"} 19
+container_open_fds{id="/system.slice/ssh.service"} 5
+container_open_fds{id="/system.slice/docker.service"} 29
+container_open_fds{id="/system.slice/NetworkManager.service"} 21
+container_open_fds{id="/docker/grafana"} 11
+:
+
+# HELP container_open_sockets Number of open sockets
+# TYPE container_open_sockets gauge
+container_open_sockets{id="/system.slice/wpa_supplicant.service"} 16
+container_open_sockets{id="/system.slice/ssh.service"} 4
+container_open_sockets{id="/system.slice/docker.service"} 19
+container_open_sockets{id="/system.slice/NetworkManager.service"} 13
+container_open_sockets{id="/docker/grafana"} 3
+:
 ```
 
 ## options
