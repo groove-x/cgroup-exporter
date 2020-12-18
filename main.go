@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/containerd/cgroups"
+	v1 "github.com/containerd/cgroups/stats/v1"
+	v2 "github.com/containerd/cgroups/v2"
+	"github.com/containerd/cgroups/v2/stats"
 	"github.com/docker/docker/api/types"
 	"github.com/moby/moby/client"
 )
@@ -41,21 +44,7 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
-	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
-	if err != nil {
-		log.Fatalf("cgroups load: %s", err)
-	}
-
-	var dockerClient *client.Client
-	if *enableDocker {
-		dockerClient, err = client.NewEnvClient()
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
-		defer dockerClient.Close()
-	}
-
-	http.HandleFunc("/metrics", exportMetrics(system, dockerClient))
+	http.HandleFunc("/metrics", exportMetrics(*enableDocker))
 
 	server := &http.Server{
 		Addr: *address,
@@ -113,18 +102,27 @@ func subsystem() ([]cgroups.Subsystem, error) {
 	return s, nil
 }
 
-type cgroupMetrics struct {
-	*cgroups.Metrics
+type cgroupV1Metrics struct {
+	*v1.Metrics
 	Process *ProcessStats `json:"process_stats"`
 }
 
-func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgroupMetrics, error) {
+func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
+	// should we support hybrid here ?
+	if cgroups.Mode() != cgroups.Legacy {
+		return map[string]*cgroupV1Metrics{}, nil
+	}
+	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
+	if err != nil {
+		log.Fatalf("cgroups load: %s", err)
+	}
+
 	processes, err := system.Processes(cgroups.Devices, true)
 	if err != nil {
 		return nil, fmt.Errorf("cgroups load: %s", err)
 	}
 
-	groups := make(map[string]*cgroupMetrics, len(processes))
+	groups := make(map[string]*cgroupV1Metrics, len(processes))
 	for _, p := range processes {
 		name := strings.TrimPrefix(p.Path, "/sys/fs/cgroup/devices")
 		name = strings.TrimSuffix(name, "/")
@@ -145,10 +143,54 @@ func statsCgroups(ctx context.Context, system cgroups.Cgroup) (map[string]*cgrou
 			continue
 		}
 		ps := processStats(p.Pid)
-		groups[name] = &cgroupMetrics{
+		groups[name] = &cgroupV1Metrics{
 			Metrics: stats,
 			Process: ps,
 		}
+	}
+	return groups, nil
+}
+
+func gatherAllDirs(basepath, path string) []string {
+	dirs := []string{path}
+
+	files, err := ioutil.ReadDir(basepath + "/" + path)
+
+	if err != nil {
+		// TODO
+		log.Print(err)
+	}
+
+	for _, f := range files {
+		if f.IsDir() {
+			dirs = append(dirs, gatherAllDirs(basepath, path+"/"+f.Name())...)
+		}
+	}
+	return dirs
+}
+
+func statsCgroupsV2(ctx context.Context) (map[string]*stats.Metrics, error) {
+	if cgroups.Mode() != cgroups.Unified {
+		return map[string]*stats.Metrics{}, nil
+	}
+	cgroupsMountpoint := "/sys/fs/cgroup"
+	allCgNames := gatherAllDirs(cgroupsMountpoint, *cgroupPath)
+	allCgNames = append(allCgNames, *cgroupPath)
+
+	groups := make(map[string]*stats.Metrics, len(allCgNames))
+
+	for _, cgName := range allCgNames {
+		manager, err := v2.LoadManager(cgroupsMountpoint, cgName)
+		if err != nil {
+			log.Printf("cgroupsv2 load manager %s: %s", cgName, err)
+			continue
+		}
+		stats, err := manager.Stat()
+		if err != nil {
+			log.Printf("cgroupsv2 stat %s: %s", cgName, err)
+			continue
+		}
+		groups[cgName] = stats
 	}
 	return groups, nil
 }
@@ -160,10 +202,13 @@ type dockerStats struct {
 	Process *ProcessStats     `json:"process_stats"`
 }
 
-func statsDockerContainers(ctx context.Context, dockerClient *client.Client) (map[string]dockerStats, error) {
-	if dockerClient == nil {
-		return nil, nil
+func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) {
+	dockerClient, err := client.NewEnvClient()
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
+	defer dockerClient.Close()
+
 	containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{
 		All:   true,
 		Limit: 0,
@@ -198,26 +243,39 @@ func statsDockerContainers(ctx context.Context, dockerClient *client.Client) (ma
 	return dockerContainers, nil
 }
 
-func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w http.ResponseWriter, r *http.Request) {
+func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		groups, err := statsCgroups(ctx, system)
+		groupsV1, err := statsCgroupsV1(ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		dockerContainers, err := statsDockerContainers(ctx, dockerClient)
+		groupsV2, err := statsCgroupsV2(ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		var dockerContainers = make(map[string]dockerStats)
+		if enableDocker {
+			dockerContainers, err = statsDockerContainers(ctx)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 
 		fmt.Fprintln(w, `# HELP container_cpu_user_seconds_total Cumulative user cpu time consumed in seconds.
 # TYPE container_cpu_user_seconds_total counter`)
-		for name, stats := range groups {
+		for name, stats := range groupsV1 {
 			fmt.Fprintf(w, `container_cpu_user_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.Usage.User)/1000000000.0)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
+			fmt.Fprintf(w, `container_cpu_user_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.UserUsec)/1000000.0)
 			fmt.Fprintln(w)
 		}
 		for name, stats := range dockerContainers {
@@ -227,8 +285,12 @@ func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w ht
 
 		fmt.Fprintln(w, `# HELP container_memory_usage_bytes Current memory usage in bytes, including all memory regardless of when it was accessed
 # TYPE container_memory_usage_bytes gauge`)
-		for name, stats := range groups {
+		for name, stats := range groupsV1 {
 			fmt.Fprintf(w, `container_memory_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage.Usage)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
+			fmt.Fprintf(w, `container_memory_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage)
 			fmt.Fprintln(w)
 		}
 		for name, stats := range dockerContainers {
@@ -236,9 +298,20 @@ func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w ht
 			fmt.Fprintln(w)
 		}
 
+		fmt.Fprintln(w, `# HELP container_memsw_usage_bytes Current memory+swap usage in bytes
+# TYPE container_memsw_usage_bytes gauge`)
+		for name, stats := range groupsV1 {
+			fmt.Fprintf(w, `container_memsw_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Swap.Usage)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
+			fmt.Fprintf(w, `container_memsw_usage_bytes{id=%s} %d`, strconv.Quote(name), stats.Memory.Usage+stats.Memory.SwapUsage)
+			fmt.Fprintln(w)
+		}
+
 		fmt.Fprintln(w, `# HELP container_memory_rss Size of RSS in bytes.
 # TYPE container_memory_rss gauge`)
-		for name, stats := range groups {
+		for name, stats := range groupsV1 {
 			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.RSS)
 			fmt.Fprintln(w)
 		}
@@ -249,7 +322,7 @@ func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w ht
 
 		fmt.Fprintln(w, `# HELP container_open_fds Number of open file descriptors
 # TYPE container_open_fds gauge`)
-		for name, stats := range groups {
+		for name, stats := range groupsV1 {
 			if stats.Process == nil {
 				continue
 			}
@@ -266,7 +339,7 @@ func exportMetrics(system cgroups.Cgroup, dockerClient *client.Client) func(w ht
 
 		fmt.Fprintln(w, `# HELP container_open_sockets Number of open sockets
 # TYPE container_open_sockets gauge`)
-		for name, stats := range groups {
+		for name, stats := range groupsV1 {
 			if stats.Process == nil {
 				continue
 			}
