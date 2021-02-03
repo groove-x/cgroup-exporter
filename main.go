@@ -27,6 +27,7 @@ var (
 	git         string
 
 	address      = flag.String("address", ":48900", "address")
+	cgroupPath   = flag.String("cgroup-path", "/system.slice", "path to cgroup")
 	enableDocker = flag.Bool("metrics.docker", false, "docker container metrics")
 )
 
@@ -40,7 +41,7 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
-	system, err := cgroups.Load(subsystem, cgroups.StaticPath("/system.slice"))
+	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
 	if err != nil {
 		log.Fatalf("cgroups load: %s", err)
 	}
