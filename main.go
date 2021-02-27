@@ -283,6 +283,21 @@ func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Reques
 			fmt.Fprintln(w)
 		}
 
+		fmt.Fprintln(w, `# HELP container_cpu_seconds_total Cumulative cpu time consumed in seconds.
+		# TYPE container_cpu_seconds_total counter`)
+		for name, stats := range groupsV1 {
+			fmt.Fprintf(w, `container_cpu_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.Usage.Total)/1000000000.0)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
+			fmt.Fprintf(w, `container_cpu_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.UsageUsec)/1000000.0)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range dockerContainers {
+			fmt.Fprintf(w, `container_cpu_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.CPUUsage.TotalUsage)/1000000000.0)
+			fmt.Fprintln(w)
+		}
+
 		fmt.Fprintln(w, `# HELP container_memory_usage_bytes Current memory usage in bytes, including all memory regardless of when it was accessed
 # TYPE container_memory_usage_bytes gauge`)
 		for name, stats := range groupsV1 {
