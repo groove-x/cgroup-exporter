@@ -108,8 +108,7 @@ type cgroupV1Metrics struct {
 }
 
 func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
-	// should we support hybrid here ?
-	if cgroups.Mode() != cgroups.Legacy {
+	if cgroups.Mode() == cgroups.Unified {
 		return map[string]*cgroupV1Metrics{}, nil
 	}
 	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
@@ -284,7 +283,7 @@ func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Reques
 		}
 
 		fmt.Fprintln(w, `# HELP container_cpu_seconds_total Cumulative cpu time consumed in seconds.
-		# TYPE container_cpu_seconds_total counter`)
+# TYPE container_cpu_seconds_total counter`)
 		for name, stats := range groupsV1 {
 			fmt.Fprintf(w, `container_cpu_seconds_total{id=%s} %.2f`, strconv.Quote(name), float64(stats.CPU.Usage.Total)/1000000000.0)
 			fmt.Fprintln(w)
