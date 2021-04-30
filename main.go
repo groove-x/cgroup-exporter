@@ -156,8 +156,8 @@ func gatherAllDirs(basepath, path string) []string {
 	files, err := ioutil.ReadDir(basepath + "/" + path)
 
 	if err != nil {
-		// TODO
-		log.Print(err)
+		log.Printf("gatherAllDirs ReadDir: %s", err)
+		return dirs
 	}
 
 	for _, f := range files {
