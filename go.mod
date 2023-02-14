@@ -11,9 +11,8 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.3.4-0.20181018102642-03db2b60b820 // indirect
 	github.com/godbus/dbus v4.1.1-0.20180905195443-5f1bd775722e+incompatible // indirect
-	github.com/gogo/protobuf v1.2.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/moby/moby v1.13.1
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2-0.20180913141938-5806c3563733 // indirect
-	golang.org/x/net v0.0.0-20200822124328-c89045814202 // indirect
 )
