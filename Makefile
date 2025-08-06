@@ -1,4 +1,4 @@
-PACKAGE_NAME:=$(shell cat deb.json | jq -r '.name')
+PACKAGE_NAME:=prometheus-cgroup-exporter
 VERSION?=0.0.0
 ARCH?=amd64
 
@@ -29,7 +29,6 @@ uninstall:
 
 build: build/${ARCH}/cgroup-exporter
 build/${ARCH}/cgroup-exporter: deb.json
-	go get -d -t .
 	@rm -rf build/${ARCH} && mkdir -p build/${ARCH}
 	GOARCH=${ARCH} go build -o $@ -ldflags "-X main.version=${VERSION} -X main.git=${GIT_HASH}" .
 
