@@ -14,7 +14,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.16 // indirect
 	github.com/cilium/ebpf v0.2.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.1.0 // indirect
-	github.com/docker/distribution v2.7.1+incompatible // indirect
+	github.com/docker/distribution v2.8.2+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/godbus/dbus/v5 v5.0.3 // indirect
