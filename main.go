@@ -20,8 +20,8 @@ import (
 	v1 "github.com/containerd/cgroups/stats/v1"
 	v2 "github.com/containerd/cgroups/v2"
 	"github.com/containerd/cgroups/v2/stats"
-	"github.com/docker/docker/api/types"
-	"github.com/moby/moby/client"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 )
 
 var (
@@ -53,7 +53,7 @@ func main() {
 		Addr: *address,
 	}
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
 			log.Printf("http server ListenAndServe: %v", err)
 		}
 	}()
@@ -213,11 +213,26 @@ func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 	return groups, nil
 }
 
+type CPUUsage struct {
+	TotalUsage        uint64 `json:"total_usage"`
+	UsageInUsermode   uint64 `json:"usage_in_usermode"`
+	UsageInKernelmode uint64 `json:"usage_in_kernelmode"`
+}
+
+type CPUStats struct {
+	CPUUsage CPUUsage `json:"cpu_usage"`
+}
+
+type MemoryStats struct {
+	Usage uint64            `json:"usage"`
+	Stats map[string]uint64 `json:"stats"`
+}
+
 type dockerStats struct {
-	CPU     types.CPUStats    `json:"cpu_stats,omitempty"`
-	PreCPU  types.CPUStats    `json:"precpu_stats,omitempty"` // "Pre"="Previous"
-	Memory  types.MemoryStats `json:"memory_stats,omitempty"`
-	Process *ProcessStats     `json:"process_stats"`
+	CPU     CPUStats      `json:"cpu_stats,omitempty"`
+	PreCPU  CPUStats      `json:"precpu_stats,omitempty"` // "Pre"="Previous"
+	Memory  MemoryStats   `json:"memory_stats,omitempty"`
+	Process *ProcessStats `json:"process_stats"`
 }
 
 func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) {
@@ -227,7 +242,7 @@ func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) 
 	}
 	defer dockerClient.Close()
 
-	containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{
+	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{
 		All:   true,
 		Limit: 0,
 	})
