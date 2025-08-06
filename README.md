@@ -1,6 +1,6 @@
 # cgroup-exporter 
 
-[![wercker status](https://app.wercker.com/status/c5dbed66eb7477a1c3a0b1a8bfe879c0/s/master "wercker status")](https://app.wercker.com/project/byKey/c5dbed66eb7477a1c3a0b1a8bfe879c0) [![Go Report Card](https://goreportcard.com/badge/github.com/groove-x/cgroup-exporter)](https://goreportcard.com/report/github.com/groove-x/cgroup-exporter)
+[![Go Report Card](https://goreportcard.com/badge/github.com/groove-x/cgroup-exporter)](https://goreportcard.com/report/github.com/groove-x/cgroup-exporter)
 
 simple cgroup cpu,memory exporter
 
