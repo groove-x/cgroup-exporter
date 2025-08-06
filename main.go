@@ -29,9 +29,10 @@ var (
 	version     string
 	git         string
 
-	address      = flag.String("address", ":48900", "address")
-	cgroupPath   = flag.String("cgroup-path", "/system.slice", "path to cgroup")
-	enableDocker = flag.Bool("metrics.docker", false, "docker container metrics")
+	address       = flag.String("address", ":48900", "address")
+	cgroupPath    = flag.String("cgroup-path", "/system.slice", "path to cgroup")
+	enableDocker  = flag.Bool("metrics.docker", false, "docker container metrics")
+	cgroupVersion = flag.String("cgroup-version", detectCgroupVersion(), "cgroup version to use (v1, v2)")
 )
 
 func main() {
@@ -44,7 +45,9 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
-	http.HandleFunc("/metrics", exportMetrics(*enableDocker))
+	log.Printf("cgroup version: %s", *cgroupVersion)
+
+	http.HandleFunc("/metrics", exportMetrics(*enableDocker, *cgroupVersion))
 
 	server := &http.Server{
 		Addr: *address,
@@ -102,6 +105,13 @@ func subsystem() ([]cgroups.Subsystem, error) {
 	return s, nil
 }
 
+func detectCgroupVersion() string {
+	if cgroups.Mode() == cgroups.Unified {
+		return "v2"
+	}
+	return "v1"
+}
+
 type cgroupV1Metrics struct {
 	*v1.Metrics
 	Process *ProcessStats `json:"process_stats"`
@@ -113,12 +123,9 @@ type cgroupV2Metrics struct {
 }
 
 func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
-	if cgroups.Mode() == cgroups.Unified {
-		return map[string]*cgroupV1Metrics{}, nil
-	}
 	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
 	if err != nil {
-		log.Fatalf("cgroups load: %s", err)
+		return nil, fmt.Errorf("cgroups load: %s", err)
 	}
 
 	processes, err := system.Processes(cgroups.Devices, true)
@@ -174,9 +181,6 @@ func gatherAllDirs(basepath, path string) []string {
 }
 
 func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
-	if cgroups.Mode() != cgroups.Unified {
-		return map[string]*cgroupV2Metrics{}, nil
-	}
 	cgroupsMountpoint := "/sys/fs/cgroup"
 	allCgNames := gatherAllDirs(cgroupsMountpoint, *cgroupPath)
 	allCgNames = append(allCgNames, *cgroupPath)
@@ -257,20 +261,29 @@ func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) 
 	return dockerContainers, nil
 }
 
-func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Request) {
+func exportMetrics(enableDocker bool, cgroupVer string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		groupsV1, err := statsCgroupsV1(ctx)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		var groupsV1 map[string]*cgroupV1Metrics
+		var groupsV2 map[string]*cgroupV2Metrics
+		var err error
 
-		groupsV2, err := statsCgroupsV2(ctx)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		// Only collect stats for the specified cgroup version
+		if cgroupVer == "v1" {
+			groupsV1, err = statsCgroupsV1(ctx)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			groupsV2 = make(map[string]*cgroupV2Metrics)
+		} else {
+			groupsV2, err = statsCgroupsV2(ctx)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			groupsV1 = make(map[string]*cgroupV1Metrics)
 		}
 
 		var dockerContainers = make(map[string]dockerStats)

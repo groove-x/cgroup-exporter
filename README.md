@@ -64,7 +64,7 @@ container_open_sockets{id="/docker/grafana"} 3
 | arg | description |
 | --- | --- |
 | `--metrics.docker` | enable docker container metrics |
-
+| `--cgroup-version` | cgroup version to use (v1, v2) |
 
 ## customize systemd
 
