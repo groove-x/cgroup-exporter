@@ -1,5 +1,5 @@
 PACKAGE_NAME:=$(shell cat deb.json | jq -r '.name')
-VERSION:=$(shell cat deb.json | jq -r '.version')
+VERSION?=0.0.0
 ARCH?=amd64
 
 all: test build
@@ -14,7 +14,7 @@ deb:
 ${PACKAGE_NAME}_${ARCH}.deb: ${PACKAGE_NAME}_${VERSION}_${ARCH}.deb
 ${PACKAGE_NAME}_${VERSION}_${ARCH}.deb: deb.json systemd/* $(APP_RESOURCES) build/${ARCH}/cgroup-exporter
 	rm -rf pkg-build
-	go-bin-deb generate --arch ${ARCH}
+	go-bin-deb generate --arch ${ARCH} --version ${VERSION}
 
 clean:
 	rm -rf build
