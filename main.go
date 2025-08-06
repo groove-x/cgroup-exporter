@@ -107,6 +107,11 @@ type cgroupV1Metrics struct {
 	Process *ProcessStats `json:"process_stats"`
 }
 
+type cgroupV2Metrics struct {
+	*stats.Metrics
+	Process *ProcessStats `json:"process_stats"`
+}
+
 func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
 	if cgroups.Mode() == cgroups.Unified {
 		return map[string]*cgroupV1Metrics{}, nil
@@ -168,15 +173,15 @@ func gatherAllDirs(basepath, path string) []string {
 	return dirs
 }
 
-func statsCgroupsV2(ctx context.Context) (map[string]*stats.Metrics, error) {
+func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 	if cgroups.Mode() != cgroups.Unified {
-		return map[string]*stats.Metrics{}, nil
+		return map[string]*cgroupV2Metrics{}, nil
 	}
 	cgroupsMountpoint := "/sys/fs/cgroup"
 	allCgNames := gatherAllDirs(cgroupsMountpoint, *cgroupPath)
 	allCgNames = append(allCgNames, *cgroupPath)
 
-	groups := make(map[string]*stats.Metrics, len(allCgNames))
+	groups := make(map[string]*cgroupV2Metrics, len(allCgNames))
 
 	for _, cgName := range allCgNames {
 		manager, err := v2.LoadManager(cgroupsMountpoint, cgName)
@@ -189,7 +194,17 @@ func statsCgroupsV2(ctx context.Context) (map[string]*stats.Metrics, error) {
 			log.Printf("cgroupsv2 stat %s: %s", cgName, err)
 			continue
 		}
-		groups[cgName] = stats
+
+		var procStats *ProcessStats
+		processes, err := manager.Procs(false)
+		if err == nil && len(processes) > 0 {
+			procStats = processStats(int(processes[0]))
+		}
+
+		groups[cgName] = &cgroupV2Metrics{
+			Metrics: stats,
+			Process: procStats,
+		}
 	}
 	return groups, nil
 }
@@ -329,6 +344,13 @@ func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Reques
 			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.RSS)
 			fmt.Fprintln(w)
 		}
+		for name, stats := range groupsV2 {
+			// cgroup v2ではRSSは memory.stat の anon フィールドで取得
+			if stats.Memory != nil {
+				fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.Anon)
+				fmt.Fprintln(w)
+			}
+		}
 		for name, stats := range dockerContainers {
 			fmt.Fprintf(w, `container_memory_rss{id=%s} %d`, strconv.Quote(name), stats.Memory.Stats["rss"])
 			fmt.Fprintln(w)
@@ -337,6 +359,13 @@ func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Reques
 		fmt.Fprintln(w, `# HELP container_open_fds Number of open file descriptors
 # TYPE container_open_fds gauge`)
 		for name, stats := range groupsV1 {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_fds{id=%s} %d`, strconv.Quote(name), stats.Process.FdCount)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
 			if stats.Process == nil {
 				continue
 			}
@@ -354,6 +383,13 @@ func exportMetrics(enableDocker bool) func(w http.ResponseWriter, r *http.Reques
 		fmt.Fprintln(w, `# HELP container_open_sockets Number of open sockets
 # TYPE container_open_sockets gauge`)
 		for name, stats := range groupsV1 {
+			if stats.Process == nil {
+				continue
+			}
+			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+			fmt.Fprintln(w)
+		}
+		for name, stats := range groupsV2 {
 			if stats.Process == nil {
 				continue
 			}
