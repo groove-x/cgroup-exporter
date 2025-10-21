@@ -1,4 +1,4 @@
-# cgroup-exporter 
+# prometheus-cgroup-exporter
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/groove-x/cgroup-exporter)](https://goreportcard.com/report/github.com/groove-x/cgroup-exporter)
 
