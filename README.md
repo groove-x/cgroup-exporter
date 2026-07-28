@@ -48,15 +48,6 @@ container_open_fds{id="/system.slice/docker.service"} 29
 container_open_fds{id="/system.slice/NetworkManager.service"} 21
 container_open_fds{id="/docker/grafana"} 11
 :
-
-# HELP container_open_sockets Number of open sockets
-# TYPE container_open_sockets gauge
-container_open_sockets{id="/system.slice/wpa_supplicant.service"} 16
-container_open_sockets{id="/system.slice/ssh.service"} 4
-container_open_sockets{id="/system.slice/docker.service"} 19
-container_open_sockets{id="/system.slice/NetworkManager.service"} 13
-container_open_sockets{id="/docker/grafana"} 3
-:
 ```
 
 ## options
@@ -64,6 +55,7 @@ container_open_sockets{id="/docker/grafana"} 3
 | arg | description |
 | --- | --- |
 | `--metrics.docker` | enable docker container metrics |
+| `--metrics.open-sockets` | enable container open sockets metrics (disabled by default) |
 | `--cgroup-version` | cgroup version to use (v1, v2) |
 
 ## customize systemd

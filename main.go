@@ -29,10 +29,11 @@ var (
 	version     string
 	git         string
 
-	address       = flag.String("address", ":48900", "address")
-	cgroupPath    = flag.String("cgroup-path", "/system.slice", "path to cgroup")
-	enableDocker  = flag.Bool("metrics.docker", false, "docker container metrics")
-	cgroupVersion = flag.String("cgroup-version", detectCgroupVersion(), "cgroup version to use (v1, v2)")
+	address           = flag.String("address", ":48900", "address")
+	cgroupPath        = flag.String("cgroup-path", "/system.slice", "path to cgroup")
+	enableDocker      = flag.Bool("metrics.docker", false, "docker container metrics")
+	enableOpenSockets = flag.Bool("metrics.open-sockets", false, "container open sockets metrics")
+	cgroupVersion     = flag.String("cgroup-version", detectCgroupVersion(), "cgroup version to use (v1, v2)")
 )
 
 func main() {
@@ -47,7 +48,7 @@ func main() {
 
 	log.Printf("cgroup version: %s", *cgroupVersion)
 
-	http.HandleFunc("/metrics", exportMetrics(*enableDocker, *cgroupVersion))
+	http.HandleFunc("/metrics", exportMetrics(*enableDocker, *cgroupVersion, *enableOpenSockets))
 
 	server := &http.Server{
 		Addr: *address,
@@ -79,14 +80,16 @@ func processStats(pid int) *ProcessStats {
 		return nil
 	}
 	var socketCount int
-	for _, fd := range fds {
-		fdPath := path.Join(dir, fd.Name())
-		linkName, err := os.Readlink(fdPath)
-		if err != nil {
-			continue
-		}
-		if strings.HasPrefix(linkName, "socket") {
-			socketCount++
+	if *enableOpenSockets {
+		for _, fd := range fds {
+			fdPath := path.Join(dir, fd.Name())
+			linkName, err := os.Readlink(fdPath)
+			if err != nil {
+				continue
+			}
+			if strings.HasPrefix(linkName, "socket") {
+				socketCount++
+			}
 		}
 	}
 	return &ProcessStats{
@@ -276,7 +279,7 @@ func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) 
 	return dockerContainers, nil
 }
 
-func exportMetrics(enableDocker bool, cgroupVer string) func(w http.ResponseWriter, r *http.Request) {
+func exportMetrics(enableDocker bool, cgroupVer string, enableOpenSockets bool) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -408,28 +411,30 @@ func exportMetrics(enableDocker bool, cgroupVer string) func(w http.ResponseWrit
 			fmt.Fprintln(w)
 		}
 
-		fmt.Fprintln(w, `# HELP container_open_sockets Number of open sockets
+		if enableOpenSockets {
+			fmt.Fprintln(w, `# HELP container_open_sockets Number of open sockets
 # TYPE container_open_sockets gauge`)
-		for name, stats := range groupsV1 {
-			if stats.Process == nil {
-				continue
+			for name, stats := range groupsV1 {
+				if stats.Process == nil {
+					continue
+				}
+				fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
-			fmt.Fprintln(w)
-		}
-		for name, stats := range groupsV2 {
-			if stats.Process == nil {
-				continue
+			for name, stats := range groupsV2 {
+				if stats.Process == nil {
+					continue
+				}
+				fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
-			fmt.Fprintln(w)
-		}
-		for name, stats := range dockerContainers {
-			if stats.Process == nil {
-				continue
+			for name, stats := range dockerContainers {
+				if stats.Process == nil {
+					continue
+				}
+				fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
+				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, `container_open_sockets{id=%s} %d`, strconv.Quote(name), stats.Process.SocketCount)
-			fmt.Fprintln(w)
 		}
 
 		processStats := processStats(os.Getpid())
