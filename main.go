@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -183,6 +184,37 @@ func gatherAllDirs(basepath, path string) []string {
 	return dirs
 }
 
+// readCPUStatV2 reads cpu.stat directly instead of relying on Manager.Stat,
+// which skips cpu.stat unless the cpu controller is listed in cgroup.controllers.
+// cpu.stat is a core file that always exists in cgroup v2, and systemd does not
+// delegate the cpu controller to services unless a unit sets CPUWeight= or similar.
+func readCPUStatV2(cgroupDir string) (*stats.CPUStat, error) {
+	data, err := ioutil.ReadFile(filepath.Join(cgroupDir, "cpu.stat"))
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]uint64)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		v, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		values[fields[0]] = v
+	}
+	return &stats.CPUStat{
+		UsageUsec:     values["usage_usec"],
+		UserUsec:      values["user_usec"],
+		SystemUsec:    values["system_usec"],
+		NrPeriods:     values["nr_periods"],
+		NrThrottled:   values["nr_throttled"],
+		ThrottledUsec: values["throttled_usec"],
+	}, nil
+}
+
 func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 	cgroupsMountpoint := "/sys/fs/cgroup"
 	allCgNames := gatherAllDirs(cgroupsMountpoint, *cgroupPath)
@@ -200,6 +232,12 @@ func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 		if err != nil {
 			log.Printf("cgroupsv2 stat %s: %s", cgName, err)
 			continue
+		}
+		cpuStat, err := readCPUStatV2(filepath.Join(cgroupsMountpoint, cgName))
+		if err != nil {
+			log.Printf("cgroupsv2 cpu.stat %s: %s", cgName, err)
+		} else {
+			stats.CPU = cpuStat
 		}
 
 		var procStats *ProcessStats
