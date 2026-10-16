@@ -1,8 +1,6 @@
 module github.com/groove-x/cgroup-exporter
 
-go 1.23.0
-
-toolchain go1.24.5
+go 1.25.0
 
 require (
 	github.com/containerd/cgroups v0.0.0-20210114181951-8a68de567b68
@@ -11,6 +9,7 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.4.16 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cilium/ebpf v0.2.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -33,14 +32,16 @@ require (
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0 // indirect
-	go.opentelemetry.io/otel v1.37.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.37.0 // indirect
-	go.opentelemetry.io/otel/metric v1.37.0 // indirect
-	go.opentelemetry.io/otel/trace v1.37.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	go.opentelemetry.io/otel v1.43.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0 // indirect
+	go.opentelemetry.io/otel/metric v1.43.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
+	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
