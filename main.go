@@ -11,16 +11,16 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/containerd/cgroups"
-	v1 "github.com/containerd/cgroups/stats/v1"
-	v2 "github.com/containerd/cgroups/v2"
-	"github.com/containerd/cgroups/v2/stats"
+	"github.com/containerd/cgroups/v3"
+	"github.com/containerd/cgroups/v3/cgroup1"
+	v1 "github.com/containerd/cgroups/v3/cgroup1/stats"
+	"github.com/containerd/cgroups/v3/cgroup2"
+	"github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -99,12 +99,12 @@ func processStats(pid int) *ProcessStats {
 	}
 }
 
-func subsystem() ([]cgroups.Subsystem, error) {
+func subsystem() ([]cgroup1.Subsystem, error) {
 	root := "/sys/fs/cgroup"
-	s := []cgroups.Subsystem{
-		cgroups.NewDevices(root),
-		cgroups.NewCpuacct(root),
-		cgroups.NewMemory(root),
+	s := []cgroup1.Subsystem{
+		cgroup1.NewDevices(root),
+		cgroup1.NewCpuacct(root),
+		cgroup1.NewMemory(root),
 	}
 	return s, nil
 }
@@ -127,12 +127,12 @@ type cgroupV2Metrics struct {
 }
 
 func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
-	system, err := cgroups.Load(subsystem, cgroups.StaticPath(*cgroupPath))
+	system, err := cgroup1.Load(cgroup1.StaticPath(*cgroupPath), cgroup1.WithHierarchy(subsystem))
 	if err != nil {
 		return nil, fmt.Errorf("cgroups load: %s", err)
 	}
 
-	processes, err := system.Processes(cgroups.Devices, true)
+	processes, err := system.Processes(cgroup1.Devices, true)
 	if err != nil {
 		return nil, fmt.Errorf("cgroups load: %s", err)
 	}
@@ -145,14 +145,14 @@ func statsCgroupsV1(ctx context.Context) (map[string]*cgroupV1Metrics, error) {
 			continue
 		}
 
-		control, err := cgroups.Load(subsystem, func(subsystem cgroups.Name) (string, error) {
+		control, err := cgroup1.Load(func(subsystem cgroup1.Name) (string, error) {
 			return name, nil
-		})
+		}, cgroup1.WithHierarchy(subsystem))
 		if err != nil {
 			log.Printf("cgroups load: %s", err)
 			continue
 		}
-		stats, err := control.Stat(cgroups.IgnoreNotExist)
+		stats, err := control.Stat(cgroup1.IgnoreNotExist)
 		if err != nil {
 			log.Printf("control stat: %s", err)
 			continue
@@ -184,37 +184,6 @@ func gatherAllDirs(basepath, path string) []string {
 	return dirs
 }
 
-// readCPUStatV2 reads cpu.stat directly instead of relying on Manager.Stat,
-// which skips cpu.stat unless the cpu controller is listed in cgroup.controllers.
-// cpu.stat is a core file that always exists in cgroup v2, and systemd does not
-// delegate the cpu controller to services unless a unit sets CPUWeight= or similar.
-func readCPUStatV2(cgroupDir string) (*stats.CPUStat, error) {
-	data, err := ioutil.ReadFile(filepath.Join(cgroupDir, "cpu.stat"))
-	if err != nil {
-		return nil, err
-	}
-	values := make(map[string]uint64)
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		v, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			continue
-		}
-		values[fields[0]] = v
-	}
-	return &stats.CPUStat{
-		UsageUsec:     values["usage_usec"],
-		UserUsec:      values["user_usec"],
-		SystemUsec:    values["system_usec"],
-		NrPeriods:     values["nr_periods"],
-		NrThrottled:   values["nr_throttled"],
-		ThrottledUsec: values["throttled_usec"],
-	}, nil
-}
-
 func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 	cgroupsMountpoint := "/sys/fs/cgroup"
 	allCgNames := gatherAllDirs(cgroupsMountpoint, *cgroupPath)
@@ -223,21 +192,16 @@ func statsCgroupsV2(ctx context.Context) (map[string]*cgroupV2Metrics, error) {
 	groups := make(map[string]*cgroupV2Metrics, len(allCgNames))
 
 	for _, cgName := range allCgNames {
-		manager, err := v2.LoadManager(cgroupsMountpoint, cgName)
+		manager, err := cgroup2.Load(cgName, cgroup2.WithMountpoint(cgroupsMountpoint))
 		if err != nil {
 			log.Printf("cgroupsv2 load manager %s: %s", cgName, err)
 			continue
 		}
-		stats, err := manager.Stat()
+		// Not Stat(): it also reads io, rdma, hugetlb and memory.events, which are not exported.
+		stats, err := manager.StatFiltered(cgroup2.StatCPU | cgroup2.StatMemory)
 		if err != nil {
 			log.Printf("cgroupsv2 stat %s: %s", cgName, err)
 			continue
-		}
-		cpuStat, err := readCPUStatV2(filepath.Join(cgroupsMountpoint, cgName))
-		if err != nil {
-			log.Printf("cgroupsv2 cpu.stat %s: %s", cgName, err)
-		} else {
-			stats.CPU = cpuStat
 		}
 
 		var procStats *ProcessStats
