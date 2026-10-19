@@ -1,6 +1,8 @@
 # prometheus-cgroup-exporter
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/groove-x/cgroup-exporter)](https://goreportcard.com/report/github.com/groove-x/cgroup-exporter)
+[![Release](https://img.shields.io/github/v/release/groove-x/cgroup-exporter)](https://github.com/groove-x/cgroup-exporter/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/groove-x/cgroup-exporter)](go.mod)
+[![License](https://img.shields.io/github/license/groove-x/cgroup-exporter)](LICENSE)
 
 simple cgroup cpu,memory exporter
 
