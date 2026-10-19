@@ -28,7 +28,7 @@ uninstall:
 	sudo dpkg -r ${PACKAGE_NAME}
 
 build: build/${ARCH}/cgroup-exporter
-build/${ARCH}/cgroup-exporter: deb.json
+build/${ARCH}/cgroup-exporter: deb.json $(wildcard *.go) go.mod go.sum
 	@rm -rf build/${ARCH} && mkdir -p build/${ARCH}
-	GOARCH=${ARCH} go build -o $@ -ldflags "-X main.version=${VERSION} -X main.git=${GIT_HASH}" .
+	CGO_ENABLED=0 GOARCH=${ARCH} go build -o $@ -ldflags "-X main.version=${VERSION} -X main.git=${GIT_HASH}" .
 
