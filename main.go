@@ -21,8 +21,7 @@ import (
 	v1 "github.com/containerd/cgroups/v3/cgroup1/stats"
 	"github.com/containerd/cgroups/v3/cgroup2"
 	"github.com/containerd/cgroups/v3/cgroup2/stats"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 var (
@@ -241,13 +240,13 @@ type dockerStats struct {
 }
 
 func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) {
-	dockerClient, err := client.NewEnvClient()
+	dockerClient, err := client.New(client.FromEnv)
 	if err != nil {
-		log.Fatalf("%v", err)
+		return nil, fmt.Errorf("create docker client: %s", err)
 	}
 	defer dockerClient.Close()
 
-	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{
+	containers, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{
 		All:   true,
 		Limit: 0,
 	})
@@ -255,9 +254,13 @@ func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) 
 		return nil, fmt.Errorf("list docker containers: %s", err)
 	}
 
-	dockerContainers := make(map[string]dockerStats, len(containers))
-	for _, container := range containers {
-		res, err := dockerClient.ContainerStats(ctx, container.ID, false)
+	dockerContainers := make(map[string]dockerStats, len(containers.Items))
+	for _, container := range containers.Items {
+		// Not a one-shot sample: the docker/docker client this replaced never
+		// sent one-shot, and daemons take a different sampling path for it.
+		res, err := dockerClient.ContainerStats(ctx, container.ID, client.ContainerStatsOptions{
+			IncludePreviousSample: true,
+		})
 		if err != nil {
 			log.Printf("failed to stats docker container %s: %s", container.ID, err)
 			continue
@@ -269,10 +272,10 @@ func statsDockerContainers(ctx context.Context) (map[string]dockerStats, error) 
 		}
 		res.Body.Close()
 		name := fmt.Sprintf("/docker%s", strings.Join(container.Names, "/"))
-		inspect, err := dockerClient.ContainerInspect(ctx, container.ID)
+		inspect, err := dockerClient.ContainerInspect(ctx, container.ID, client.ContainerInspectOptions{})
 		if err == nil {
-			if inspect.State != nil {
-				stats.Process = processStats(inspect.State.Pid)
+			if inspect.Container.State != nil {
+				stats.Process = processStats(inspect.Container.State.Pid)
 			}
 		}
 		dockerContainers[name] = stats
